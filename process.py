@@ -40,6 +40,7 @@ def process_urls():
     urls_to_collect = database.urls.select().where( database.urls.c.download_attempted == False )
     urls_to_collect = database.connection.execute( urls_to_collect ).fetchall()
 
+    # worker number can be adjusted to fit the system
     with ThreadPoolExecutor(max_workers=10) as executor:
         futures = {executor.submit(process_url, row): row for row in urls_to_collect}
 
