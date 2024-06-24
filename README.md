@@ -4,6 +4,10 @@
 1. If there are, store new article URL.
 1. Download articles, store automated extraction of news stories as well as the full HTML.
 
+## Inputting feeds
+
+Place the feeds in "feeds.txt" inside a "data" folder.
+
 ## Cronjob example
 
 ```

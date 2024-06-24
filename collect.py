@@ -1,6 +1,7 @@
-import requests
-import feedparser
+import asyncio
 from urllib.parse import urlparse, parse_qs, urlunparse, urlencode
+import aiohttp
+import feedparser
 
 import database
 
@@ -18,35 +19,52 @@ def clean_url( url ):
     ])
     return newurl
 
-for feed_url in open("data/feeds.txt"):
+## some services contain a redirection
+async def fetch( session, url ):
+    async with session.get(url, allow_redirects=False) as response:
+        if 300 <= response.status < 400: ## detect redirections
+            return response.headers['Location']
+        return url
 
-    feed_url = feed_url.strip()
+async def process_feed( session, feed_url ):
     feed = feedparser.parse( feed_url )
+    new_urls = []
 
-    for item in feed['items']:
-        link = item['link']
+    tasks = [fetch(session, item['link']) for item in feed['items']]
+    responses = await asyncio.gather(*tasks)
 
-        res = requests.get( link, allow_redirects = False )
-
-        ## some services contain a redirection
-        if 300 <= res.status_code < 400: ## detect redirections
-            link = res.headers['location']
-
-        link = clean_url( link )
-
+    for link in responses:
+        
+        cleaned_link = clean_url( link )
+        
         ## check if we already have this URL
-        has_url = database.urls.select().where( database.urls.c.url == link )
+        has_url = database.urls.select().where( database.urls.c.url == cleaned_link )
         has_url = database.connection.execute( has_url )
-
+        
         if not has_url.fetchone(): ## have not collected item yet
 
-            new_url = database.urls.insert().values(
-                feed = feed_url,
-                url = link
+            new_urls.append(
+                {
+                    'feed': feed_url,
+                    'url': cleaned_link
+                }
             )
 
-            print( link )
+            print( cleaned_link )
 
-            database.connection.execute( new_url )
+    return new_urls
 
-    database.connection.commit()
+async def main():
+    feed_urls = [url.strip() for url in open("data/feeds.txt")]
+
+    async with aiohttp.ClientSession() as session:
+        tasks = [process_feed(session, feed_url) for feed_url in feed_urls]
+        results = await asyncio.gather(*tasks)
+
+    new_entries = [entry for sublist in results for entry in sublist]
+    if new_entries:
+        database.connection.execute(database.urls.insert(), new_entries)
+        database.connection.commit()
+
+if __name__ == '__main__':
+    asyncio.run(main())
