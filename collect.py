@@ -21,50 +21,65 @@ def clean_url( url ):
 
 ## some services contain a redirection
 async def fetch( session, url ):
-    async with session.get(url, allow_redirects=False) as response:
-        if 300 <= response.status < 400: ## detect redirections
-            return response.headers['Location']
-        return url
+    try:
+        async with session.get ( url, allow_redirects = False ) as response:
+            if 300 <= response.status < 400: ## detect redirections
+                return response.headers['Location']
+            return url
+    except Exception as e:
+        print(f"Error fetching URL {url}: {e}")
+        return None
 
 async def process_feed( session, feed_url ):
     feed = feedparser.parse( feed_url )
     new_urls = []
 
+    # list async fetch tasks and run them
     tasks = [fetch(session, item['link']) for item in feed['items']]
     responses = await asyncio.gather(*tasks)
-
-    for link in responses:
         
-        cleaned_link = clean_url( link )
-        
-        ## check if we already have this URL
-        has_url = database.urls.select().where( database.urls.c.url == cleaned_link )
-        has_url = database.connection.execute( has_url )
-        
-        if not has_url.fetchone(): ## have not collected item yet
+    with database.session_scope() as db_session:
 
-            new_urls.append(
-                {
-                    'feed': feed_url,
-                    'url': cleaned_link
-                }
-            )
+        for link in responses:
+            if link:
+                cleaned_link = clean_url( link )
 
-            print( cleaned_link )
+                try:
+                    ## check if we already have this URL
+                    has_url = db_session.query( database.urls ).filter( database.urls.c.url == cleaned_link ).first()
+
+                    if not has_url: ## have not collected item yet
+                        new_urls.append(
+                            {
+                                'feed': feed_url,
+                                'url': cleaned_link
+                            }
+                        )
+                    print( cleaned_link )
+                except Exception as e:
+                    print(f"Error processing link {link}: {e}")
 
     return new_urls
 
 async def main():
     feed_urls = [url.strip() for url in open("data/feeds.txt")]
 
+    # async session for processing
     async with aiohttp.ClientSession() as session:
         tasks = [process_feed(session, feed_url) for feed_url in feed_urls]
         results = await asyncio.gather(*tasks)
 
+    # list of lists into single list
     new_entries = [entry for sublist in results for entry in sublist]
+
     if new_entries:
-        database.connection.execute(database.urls.insert(), new_entries)
-        database.connection.commit()
+        with database.session_scope() as db_session:
+            try:
+                db_session.execute(database.urls.insert(), new_entries)
+                db_session.commit()
+                print("New URLs inserted into the database.")
+            except Exception as e:
+                print(f"Error inserting new URLs: {e}")
 
 if __name__ == '__main__':
     asyncio.run(main())
