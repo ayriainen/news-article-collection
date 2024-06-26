@@ -12,5 +12,5 @@ Place the feeds in "feeds.txt" inside a "data" folder.
 
 ```
 */5 * * * * cd ~/news-article-collection/; python3 collect.py
-*/30 * * * * cd ~/news-article-collection/; python3 progress.py
+*/30 * * * * cd ~/news-article-collection/; python3 process.py
 ```
