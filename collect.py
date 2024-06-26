@@ -22,7 +22,7 @@ def clean_url( url ):
 ## some services contain a redirection
 async def fetch( session, url ):
     try:
-        async with session.get ( url, allow_redirects = False ) as response:
+        async with session.get ( url, allow_redirects = False, timeout=aiohttp.ClientTimeout(total=10) ) as response:
             if 300 <= response.status < 400: ## detect redirections
                 return response.headers['Location']
             return url
@@ -31,38 +31,50 @@ async def fetch( session, url ):
         return None
 
 async def process_feed( session, feed_url ):
-    feed = feedparser.parse( feed_url )
+    try:
+        feed = feedparser.parse( feed_url )
+    except Exception as e:
+        print(f"Error parsing feed URL {feed_url}: {e}")
+        return []
+
     new_urls = []
 
-    # list async fetch tasks and run them
+    # list async fetch tasks for the items of the feed and handle them
     tasks = [fetch(session, item['link']) for item in feed['items']]
-    responses = await asyncio.gather(*tasks)
-        
-    with database.session_scope() as db_session:
-
-        for link in responses:
+    try:
+        for task in asyncio.as_completed(tasks, timeout=60):
+            link = await asyncio.wait_for(task, timeout=10)
             if link:
                 cleaned_link = clean_url( link )
-
-                try:
-                    ## check if we already have this URL
-                    has_url = db_session.query( database.urls ).filter( database.urls.c.url == cleaned_link ).first()
-
-                    if not has_url: ## have not collected item yet
-                        new_urls.append(
-                            {
-                                'feed': feed_url,
-                                'url': cleaned_link
-                            }
-                        )
-                    print( cleaned_link )
-                except Exception as e:
-                    print(f"Error processing link {link}: {e}")
+                with database.session_scope() as db_session:
+                    try:
+                        ## check if we already have this URL
+                        has_url = db_session.query( database.urls ).filter( database.urls.c.url == cleaned_link ).first()
+                        if not has_url: ## have not collected item yet
+                            new_urls.append(
+                                {
+                                    'feed': feed_url,
+                                    'url': cleaned_link
+                                }
+                            )
+                        print( cleaned_link )
+                    except Exception as e:
+                        print(f"Error appending link {link}: {e}")
+    except asyncio.TimeoutError:
+        print(f"Timeout when collecting feed {feed_url}")
+    except Exception as e:
+        print(f"Error collecting feed {feed_url}: {e}")
 
     return new_urls
 
 async def main():
-    feed_urls = [url.strip() for url in open("data/feeds.txt")]
+    # parse and verify feeds.txt feed urls
+    with open("data/feeds.txt") as f:
+        feed_urls = [url.strip() for url in f if url.strip()]
+    feed_urls = [url for url in feed_urls if urlparse(url).scheme in ['http', 'https']]
+    if not feed_urls:
+        print("No valid feed URLs found.")
+        return
 
     # async session for processing
     async with aiohttp.ClientSession() as session:

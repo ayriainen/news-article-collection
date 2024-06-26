@@ -39,7 +39,7 @@ def download_and_parse( url, session ):
 
 def process_url( row, session ):
     row = row._mapping
-    
+
     # mark url as download attempted
     stm = database.urls.update().where( database.urls.c.id == row['id'] ).values( download_attempted = True )
     session.execute( stm )

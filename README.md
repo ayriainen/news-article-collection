@@ -6,7 +6,7 @@
 
 ## Inputting feeds
 
-Place the feeds in "feeds.txt" inside a "data" folder.
+Place the RSS feeds in "feeds.txt" inside a "data" folder, each on their own line.
 
 ## Cronjob example
 
