@@ -43,23 +43,26 @@ async def process_feed( session, feed_url ):
     tasks = [fetch(session, item['link']) for item in feed['items']]
     try:
         for task in asyncio.as_completed(tasks, timeout=60):
-            link = await asyncio.wait_for(task, timeout=10)
-            if link:
-                cleaned_link = clean_url( link )
-                with database.session_scope() as db_session:
-                    try:
-                        ## check if we already have this URL
-                        has_url = db_session.query( database.urls ).filter( database.urls.c.url == cleaned_link ).first()
-                        if not has_url: ## have not collected item yet
-                            new_urls.append(
-                                {
-                                    'feed': feed_url,
-                                    'url': cleaned_link
-                                }
-                            )
-                        print( cleaned_link )
-                    except Exception as e:
-                        print(f"Error appending link {link}: {e}")
+            try:
+                link = await asyncio.wait_for(task, timeout=12)
+                if link:
+                    cleaned_link = clean_url( link )
+                    with database.session_scope() as db_session:
+                        try:
+                            ## check if we already have this URL
+                            has_url = db_session.query( database.urls ).filter( database.urls.c.url == cleaned_link ).first()
+                            if not has_url: ## have not collected item yet
+                                new_urls.append(
+                                    {
+                                        'feed': feed_url,
+                                        'url': cleaned_link
+                                    }
+                                )
+                                print( cleaned_link )
+                        except Exception as e:
+                            print(f"Error appending link {link}: {e}")
+            except asyncio.TimeoutError:
+                print(f"Timeout fetching URL {task.get_coro().cr_frame.f_locals['url']}")
     except asyncio.TimeoutError:
         print(f"Timeout when collecting feed {feed_url}")
     except Exception as e:
