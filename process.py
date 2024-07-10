@@ -30,6 +30,8 @@ def process_urls():
         print(f"Error fetching URLs from database: {e}", file=sys.stderr)
         return
 
+    download_and_parse("v")
+
     for row in urls_to_collect:
 
         row = row._mapping 
